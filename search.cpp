@@ -18,6 +18,12 @@
 
 #include <Windows.h>
 
+#include <string>
+#include <iostream>
+
+
+
+#include <boost/locale.hpp>
 /*
 select protocol, host, query from words_documents join documents on words_documents.document_id = documents.id where word_id='OpenSSL' order by amount
 
@@ -195,7 +201,9 @@ private:
         if (request_.target() == "/")
         {
             std::string s = buffers_to_string(request_.body().data());
-            std::cout << ">>>" << s << "<<<" << std::endl;
+
+            using namespace boost::locale;
+            using namespace std;
 
             size_t pos = s.find('=');
             if (pos == std::string::npos)
@@ -221,9 +229,18 @@ private:
                 return;
             }
 
+            // Create system default locale
+            generator gen;
+            locale loc = gen("");
+            locale::global(loc);
+
+            auto word = to_lower(value);
+
+            //std::cout << ">>>" << word << "<<<" << std::endl;
+
             pqxx::work txn{conn};
 
-            pqxx::result r = txn.exec_prepared("search_pages", value);
+            pqxx::result r = txn.exec_prepared("search_pages", word);
 
             response_.set(http::field::content_type, "text/html");
             beast::ostream(response_.body())
@@ -317,14 +334,73 @@ main(int argc, char* argv[])
 
     try
     {
-        pqxx::connection c(
-            "host=localhost "
-            "port=5432 "
-            "dbname=lesson03 "
-            "user=lesson03user "
-            "password=lesson03user");
 
-        c.prepare("search_pages", "select protocol, host, query from words_documents join documents on words_documents.document_id = documents.id where word_id=$1 order by amount limit 10");
+
+        std::ifstream ini_file("C:\\Work\\Projects\\DiplomProject001\\settings.ini");
+
+        if (!ini_file.is_open())
+        {
+            std::cout << "File settings.ini not found, quitting..." << std::endl;
+            return -1;
+        }
+
+        std::map<std::string, std::string> my_map;
+
+        std::string line;
+        while (std::getline(ini_file, line)) {
+            size_t pos = line.find('=');
+            if (pos == std::string::npos)
+                continue;
+
+            std::string key = line.substr(0, pos);
+            std::string value = line.substr(pos + 1);
+            my_map[key] = value;
+        }
+
+        if (my_map.count("start_page") == 0)
+        {
+            std::cout << "Please define start_page in the settings.ini file." << std::endl;
+            return -1;
+        }
+        if (my_map.count("level") == 0)
+        {
+            std::cout << "Please define level in the settings.ini file." << std::endl;
+            return -1;
+        }
+        if (my_map.count("db_host") == 0)
+        {
+            std::cout << "Please define db_host in the settings.ini file." << std::endl;
+            return -1;
+        }
+        if (my_map.count("db_port") == 0)
+        {
+            std::cout << "Please define db_host in the settings.ini file." << std::endl;
+            return -1;
+        }
+        if (my_map.count("db_name") == 0)
+        {
+            std::cout << "Please define db_name in the settings.ini file." << std::endl;
+            return -1;
+        }
+        if (my_map.count("db_user") == 0)
+        {
+            std::cout << "Please define db_user in the settings.ini file." << std::endl;
+            return -1;
+        }
+        if (my_map.count("db_password") == 0)
+        {
+            std::cout << "Please define db_password in the settings.ini file." << std::endl;
+            return -1;
+        }
+
+        pqxx::connection c(
+            "host=" + my_map["db_host"] +
+            " port=" + my_map["db_port"] +
+            " dbname=" + my_map["db_name"] +
+            " user=" + my_map["db_user"] +
+            " password=" + my_map["db_password"]);
+
+        c.prepare("search_pages", "select protocol, host, query from words_documents join documents on words_documents.document_id = documents.id where word_id=$1 order by amount desc limit 10");
 
 
         auto const address = net::ip::make_address("0.0.0.0");

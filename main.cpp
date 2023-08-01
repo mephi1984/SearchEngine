@@ -21,19 +21,25 @@
 #include <sstream>
 #include <map>
 #include <string>
+#include <unordered_set>
+
 
 #include <pqxx/pqxx>
 
 
 
-namespace beast = boost::beast;
-namespace http = beast::http;
-namespace net = boost::asio;
-namespace ip = boost::asio::ip;
-namespace ssl = boost::asio::ssl;
-//namespace json = boost::json;
-using tcp = boost::asio::ip::tcp;
 
+
+#include <iostream>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <queue>
+#include <condition_variable>
+
+
+
+#include <boost/locale.hpp>
 enum class ProtocolType
 {
 	HTTP = 0,
@@ -45,7 +51,60 @@ struct Link
 	ProtocolType protocol;
 	std::string hostName;
 	std::string query;
+
+	bool operator==(const Link& l) const
+	{
+		return protocol == l.protocol
+			&& hostName == l.hostName
+			&& query == l.query;
+	}
 };
+
+namespace std {
+
+	template <>
+	struct hash<Link> {
+		std::size_t operator()(const Link& link) const noexcept {
+			std::size_t h1 = std::hash<int>{}(static_cast<int>(link.protocol));
+			std::size_t h2 = std::hash<std::string>{}(link.hostName);
+			std::size_t h3 = std::hash<std::string>{}(link.query);
+			return h1 ^ (h2 << 1) ^ (h3 << 2);
+		}
+	};
+
+} // namespace std
+
+
+std::mutex document_add_mutex;
+
+std::mutex mtx;
+std::condition_variable cv;
+std::queue<std::function<void()>> tasks;
+bool stop = false;
+
+void threadPoolWorker() {
+	std::unique_lock<std::mutex> lock(mtx);
+	while (!stop || !tasks.empty()) {
+		if (tasks.empty()) {
+			cv.wait(lock);
+		}
+		else {
+			auto task = tasks.front();
+			tasks.pop();
+			lock.unlock();
+			task();
+			lock.lock();
+		}
+	}
+}
+namespace beast = boost::beast;
+namespace http = beast::http;
+namespace net = boost::asio;
+namespace ip = boost::asio::ip;
+namespace ssl = boost::asio::ssl;
+//namespace json = boost::json;
+using tcp = boost::asio::ip::tcp;
+
 
 std::vector<std::string> explode(const std::string& s)
 {
@@ -153,19 +212,19 @@ bool isText(const boost::beast::multi_buffer::const_buffers_type& b)
 	return true;
 }
 
-std::vector<Link> filterLinks(const std::vector<std::string>& rawLinks, ProtocolType protocol, const std::string& hostName)
+std::unordered_set<Link> filterLinks(const std::vector<std::string>& rawLinks, ProtocolType protocol, const std::string& hostName)
 {
-	std::vector<Link> result;
+	std::unordered_set<Link> result;
 
 	for (const auto& link : rawLinks)
 	{
 		if (link[0] == '/')
 		{
-			result.push_back({ ProtocolType::HTTPS, hostName, link });
+			result.insert({ ProtocolType::HTTPS, hostName, link });
 		}
 		else if ((link.substr(0, 7) == "http://") || (link.substr(0, 8) == "https://"))
 		{
-			result.push_back(splitLink(link));
+			result.insert(splitLink(link));
 		}
 	}
 
@@ -213,12 +272,36 @@ void createTables(pqxx::connection& c)
 {
 	pqxx::work tx{ c };
 
-	tx.exec("create table if not exists words (id varchar(255) not null primary key); "); 
+	tx.exec("create table if not exists words (id varchar(255) not null primary key); ");
 	tx.exec("create table if not exists documents (id serial primary key, protocol int not null, host text not null, query text not null); ");
 	tx.exec("create table if not exists words_documents (id serial primary key, word_id varchar(255) not null references words(id), document_id integer not null references documents(id), amount integer not null); ");
 	tx.commit();
 }
 
+
+bool documentExists(pqxx::connection& c, Link link)
+{
+	pqxx::work txn{ c };
+
+	pqxx::result r = txn.exec_prepared("document_count", static_cast<int>(link.protocol), link.hostName, link.query);
+
+	txn.commit();
+
+	if (!r.empty()) {
+		int id = r[0][0].as<int>();
+
+		if (id == 0)
+		{
+			return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
+
+
+}
 
 void addDocumentWithWords(pqxx::connection& c, Link link, const std::vector<std::string>& words)
 {
@@ -230,7 +313,7 @@ void addDocumentWithWords(pqxx::connection& c, Link link, const std::vector<std:
 
 	if (!r.empty()) {
 		int id = r[0][0].as<int>();
-		std::cout << "The id of the inserted row is: " << id << std::endl;
+		//std::cout << "The id of the inserted row is: " << id << std::endl;
 
 		pqxx::work txn2{ c };
 
@@ -240,19 +323,31 @@ void addDocumentWithWords(pqxx::connection& c, Link link, const std::vector<std:
 		{
 			if ((s.size() >= 3) && (s.size() < 255))
 			{
-				if (wordCount.count(s) == 0)
+				using namespace boost::locale;
+				using namespace std;
+
+				// Create system default locale
+				generator gen;
+				locale loc = gen("");
+				locale::global(loc);
+
+				auto word = to_lower(s);
+
+
+				if (wordCount.count(word) == 0)
 				{
-					wordCount[s] = 1;
+					wordCount[word] = 1;
 				}
 				else
 				{
-					wordCount[s]++;
+					wordCount[word]++;
 				}
 			}
 		}
 
 		for (auto w : wordCount)
 		{
+
 			//TODO: TO LOWERCASE
 			txn2.exec_prepared("insert_word", w.first);
 			txn2.exec_prepared("insert_word_for_document", w.first, id, w.second);
@@ -261,66 +356,17 @@ void addDocumentWithWords(pqxx::connection& c, Link link, const std::vector<std:
 		txn2.commit();
 	}
 
-	
+
 }
 
-
-int main()
+void ParseLink(pqxx::connection& c, Link link, int depth, int index, int ofTotalCount)
 {
 	try {
 
-		pqxx::connection c(
-			"host=localhost "
-			"port=5432 "
-			"dbname=lesson03 "
-			"user=lesson03user "
-			"password=lesson03user");
+		std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-
-		c.prepare("insert_document", "INSERT INTO documents (protocol, host, query) VALUES ($1, $2, $3) RETURNING id;");
-		c.prepare("insert_word", "INSERT INTO words (id) VALUES ($1) ON CONFLICT (id) DO NOTHING;");
-		c.prepare("insert_word_for_document", "INSERT INTO words_documents (word_id, document_id, amount) VALUES ($1, $2, $3) RETURNING id;");
-
-
-		std::ifstream ini_file("C:\\Work\\Projects\\DiplomProject001\\settings.ini");
-
-		std::map<std::string, std::string> my_map;
-
-		std::string line;
-		while (std::getline(ini_file, line)) {
-			size_t pos = line.find('=');
-			if (pos == std::string::npos)
-				continue;
-
-			std::string key = line.substr(0, pos);
-			std::string value = line.substr(pos + 1);
-			my_map[key] = value;
-		}
-
-		if (my_map.count("start_page") == 0)
-		{
-			std::cout << "Please define start_page in the settings.ini file." << std::endl;
-			return -1;
-		}
-		if (my_map.count("level") == 0)
-		{
-			std::cout << "Please define level in the settings.ini file." << std::endl;
-			return -1;
-		}
-
-		std::string startPage = my_map["start_page"];
-		int level = std::stoi(my_map["level"]);
-
-		if (level <= 0)
-		{
-			std::cout << "Level must be 1 or greater." << std::endl;
-			return -1;
-		}
-
-		Link link = splitLink(startPage);
 
 		std::string host = link.hostName;
-		//std::string query = "/images/9/97/HTAB.png";
 		std::string query = link.query;
 
 		// Initialize IO context
@@ -357,57 +403,72 @@ int main()
 		if (!isText(res.body().data()))
 		{
 			std::cout << "This is not a text link, bailing out..." << std::endl;
-			return 0;
+			return;
 		}
-
+		
 		std::string s = buffers_to_string(res.body().data());
-
+		/*
 		std::cout << s << std::endl;
 		std::cout << "--------------" << std::endl;
 		std::cout << s.substr(0, 10) << std::endl;
-		std::cout << "-----------------" << std::endl;
+		std::cout << "-----------------" << std::endl;*/
 		std::vector<std::string> rawLinks = extractLinks(s);
 
-		std::vector<Link> links = filterLinks(rawLinks, link.protocol, link.hostName);
+		std::unordered_set<Link> links = filterLinks(rawLinks, link.protocol, link.hostName);
 
+		/*
 		for (auto& link : links)
 		{
 			std::cout << "link: " << link.hostName << " " << link.query << std::endl;
-		}
+		}*/
 
 		s = removeHtmlTags(s);
 
 		std::vector<std::string> str = explode(s);
 
-		std::cout << "-----------------" << std::endl;
-
+		/*
 		for (auto word : str)
 		{
 			if (word.length() >= 3)
 			{
 				std::cout << word << std::endl;
 			}
-		}
-
-		std::cout << "--------------" << std::endl;
-
-		addDocumentWithWords(c, link, str);
-
-
-
-		//inFile.close();
-
-		/*
-		// Parse the JSON response
-		json::error_code err;
-		json::value j = json::parse(buffers_to_string(res.body().data()), err);
-		std::cout << "IP address: " << j.at("ip").as_string() << std::endl;
-		if (err) {
-			std::cerr << "Error parsing JSON: " << err.message() << std::endl;
 		}*/
 
-		//std::cout << "IP address: " << j.at("ip").as_string() << std::endl;
-		// Cleanup
+		document_add_mutex.lock();
+
+		bool docExists = documentExists(c, link);
+		if (!docExists)
+		{
+			addDocumentWithWords(c, link, str);
+		}
+
+		document_add_mutex.unlock();
+
+		std::cout << "Parsed: " << host << " " << query << " with " << str.size() << " words, depth: " << depth << " item " << index << " of " << ofTotalCount << std::endl;
+
+
+
+		if (depth > 0) {
+			std::lock_guard<std::mutex> lock(mtx);
+
+			size_t count = links.size();
+			size_t index = 0;
+			for (auto& subLink : links)
+			{
+				document_add_mutex.lock();
+				bool docExists = documentExists(c, subLink);
+				if (!docExists)
+				{
+					tasks.push([&c, subLink, depth, index, count]() { ParseLink(c, subLink, depth - 1, index, count); });
+					index++;
+				}
+
+				document_add_mutex.unlock();
+			}
+			cv.notify_one();
+		}
+
 		beast::error_code ec;
 		stream.shutdown(ec);
 		if (ec == net::error::eof) {
@@ -415,6 +476,137 @@ int main()
 		}
 		if (ec) {
 			throw beast::system_error{ec};
+		}
+	}
+	catch (const std::exception& e)
+	{
+		std::cout << e.what() << std::endl;
+	}
+
+}
+
+
+
+int main()
+{
+	try {
+
+		std::ifstream ini_file("C:\\Work\\Projects\\DiplomProject001\\settings.ini");
+
+		if (!ini_file.is_open())
+		{
+			std::cout << "File settings.ini not found, quitting..." << std::endl;
+			return -1;
+		}
+
+		std::map<std::string, std::string> my_map;
+
+		std::string line;
+		while (std::getline(ini_file, line)) {
+			size_t pos = line.find('=');
+			if (pos == std::string::npos)
+				continue;
+
+			std::string key = line.substr(0, pos);
+			std::string value = line.substr(pos + 1);
+			my_map[key] = value;
+		}
+
+		if (my_map.count("start_page") == 0)
+		{
+			std::cout << "Please define start_page in the settings.ini file." << std::endl;
+			return -1;
+		}
+		if (my_map.count("level") == 0)
+		{
+			std::cout << "Please define level in the settings.ini file." << std::endl;
+			return -1;
+		}
+		if (my_map.count("db_host") == 0)
+		{
+			std::cout << "Please define db_host in the settings.ini file." << std::endl;
+			return -1;
+		}
+		if (my_map.count("db_port") == 0)
+		{
+			std::cout << "Please define db_host in the settings.ini file." << std::endl;
+			return -1;
+		}
+		if (my_map.count("db_name") == 0)
+		{
+			std::cout << "Please define db_name in the settings.ini file." << std::endl;
+			return -1;
+		}
+		if (my_map.count("db_user") == 0)
+		{
+			std::cout << "Please define db_user in the settings.ini file." << std::endl;
+			return -1;
+		}
+		if (my_map.count("db_password") == 0)
+		{
+			std::cout << "Please define db_password in the settings.ini file." << std::endl;
+			return -1;
+		}
+
+		pqxx::connection c(
+			"host=" + my_map["db_host"] +
+			" port=" + my_map["db_port"] +
+			" dbname=" + my_map["db_name"] + 
+			" user=" + my_map["db_user"] +
+			" password=" + my_map["db_password"]);
+
+
+		createTables(c);
+
+		c.prepare("insert_document", "INSERT INTO documents (protocol, host, query) VALUES ($1, $2, $3) RETURNING id;");
+		c.prepare("insert_word", "INSERT INTO words (id) VALUES ($1) ON CONFLICT (id) DO NOTHING;");
+		c.prepare("insert_word_for_document", "INSERT INTO words_documents (word_id, document_id, amount) VALUES ($1, $2, $3) RETURNING id;");
+		c.prepare("document_count", "SELECT COUNT(*) from documents where protocol=$1 and host=$2 and query=$3");
+
+
+
+
+
+		std::string startPage = my_map["start_page"];
+		int level = std::stoi(my_map["level"]);
+
+		if (level < 0)
+		{
+			std::cout << "Level must be 0 or greater." << std::endl;
+			return -1;
+		}
+
+		Link link = splitLink(startPage);
+
+		
+
+
+		int numThreads = std::thread::hardware_concurrency();
+		std::vector<std::thread> threadPool;
+		for (int i = 0; i < numThreads; ++i) {
+			threadPool.emplace_back(threadPoolWorker);
+		}
+
+		// добавляем первую задачу
+		{
+			std::lock_guard<std::mutex> lock(mtx);
+			tasks.push([&c, link, level]() { ParseLink(c, link, level, 1, 1); });
+			cv.notify_one();
+		}
+
+		// ждем некоторое время
+		std::this_thread::sleep_for(std::chrono::seconds(2));
+
+		// останавливаем пул потоков
+		{
+			std::lock_guard<std::mutex> lock(mtx);
+			stop = true;
+			cv.notify_all();
+		}
+
+		// присоединяем потоки
+		for (auto& t : threadPool) {
+			t.join();
 		}
 	}
 	catch (const std::exception& e)

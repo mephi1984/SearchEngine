@@ -6,7 +6,7 @@
 #include <condition_variable>
 
 #include "ini_parser.h"
-#include "database_worker.h"
+#include "parser_database_worker.h"
 #include "http_utils.h"
 #include "common.h"
 #include <functional>
@@ -33,13 +33,13 @@ void threadPoolWorker() {
 		}
 	}
 }
-void ParseLink(DatabaseWorker& databaseWorker, Link link, int depth, int index, int ofTotalCount)
+void parseLink(ParserDatabaseWorker& databaseWorker, Link link, int depth, int index, int ofTotalCount)
 {
 	try {
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-		std::string html = GetHtmlContent(link);
+		std::string html = getHtmlContent(link);
 
 		if (html.size() == 0)
 		{
@@ -48,37 +48,19 @@ void ParseLink(DatabaseWorker& databaseWorker, Link link, int depth, int index, 
 			return;
 		}
 
-		/*
-		std::cout << s << std::endl;
-		std::cout << "--------------" << std::endl;
-		std::cout << s.substr(0, 10) << std::endl;
-		std::cout << "-----------------" << std::endl;*/
 		std::vector<std::string> rawLinks = extractLinks(html);
 
 		std::unordered_set<Link> links = filterLinks(rawLinks, link.protocol, link.hostName);
 
-		/*
-		for (auto& link : links)
-		{
-			std::cout << "link: " << link.hostName << " " << link.query << std::endl;
-		}*/
-
 		std::string text = removeHtmlTags(html);
 
-		std::vector<std::string> str = explode(text);
+		std::vector<std::string> words = explode(text);
 
-		/*
-		for (auto word : str)
-		{
-			if (word.length() >= 3)
-			{
-				std::cout << word << std::endl;
-			}
-		}*/
+		std::map<std::string, int> wordCount = countWords(words);
 
-		databaseWorker.addDocumentWithWordsIfNotExists(link, str);
+		databaseWorker.addDocumentWithWordsIfNotExists(link, wordCount);
 
-		std::cout << "Parsed: " << link.hostName << " " << link.query << " with " << str.size() << " words, depth: " << depth << " item " << index << " of " << ofTotalCount << std::endl;
+		std::cout << "Parsed: " << link.hostName << " " << link.query << " with " << words.size() << " words, depth: " << depth << " item " << index << " of " << ofTotalCount << std::endl;
 
 
 
@@ -92,7 +74,7 @@ void ParseLink(DatabaseWorker& databaseWorker, Link link, int depth, int index, 
 				bool docExists = databaseWorker.documentExists(subLink);
 				if (!docExists)
 				{
-					tasks.push([&databaseWorker, subLink, depth, index, count]() { ParseLink(databaseWorker, subLink, depth - 1, index, count); });
+					tasks.push([&databaseWorker, subLink, depth, index, count]() { parseLink(databaseWorker, subLink, depth - 1, index, count); });
 					index++;
 				}
 			}
@@ -115,7 +97,7 @@ int main()
 
 		IniParser iniParser("C:\\Work\\Projects\\DiplomProject001\\settings.ini");
 
-		DatabaseWorker databaseWorker(iniParser);
+		ParserDatabaseWorker databaseWorker(iniParser);
 
 		std::string startPage = iniParser.getStartPage();
 		int level = iniParser.getLevel();
@@ -124,6 +106,7 @@ int main()
 
 		int numThreads = std::thread::hardware_concurrency();
 		std::vector<std::thread> threadPool;
+
 		for (int i = 0; i < numThreads; ++i) {
 			threadPool.emplace_back(threadPoolWorker);
 		}
@@ -131,7 +114,7 @@ int main()
 
 		{
 			std::lock_guard<std::mutex> lock(mtx);
-			tasks.push([&databaseWorker, link, level]() { ParseLink(databaseWorker, link, level, 1, 1); });
+			tasks.push([&databaseWorker, link, level]() { parseLink(databaseWorker, link, level, 1, 1); });
 			cv.notify_one();
 		}
 

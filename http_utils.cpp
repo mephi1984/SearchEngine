@@ -12,6 +12,8 @@
 #include <boost/asio/ssl.hpp>
 #include <openssl/ssl.h>
 
+#include "common.h"
+
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace net = boost::asio;
@@ -37,39 +39,35 @@ bool isText(const boost::beast::multi_buffer::const_buffers_type& b)
 }
 
 
-
-
-std::vector<std::string> explode(const std::string& s)
-{
-	std::vector<std::string> result;
-	std::string delimiters(" \r\n\t.,;:!&()[]{}\"/=+-*'");
-
-	size_t index = 0;
-	std::string tempString;
-
-	while (index < s.size())
-	{
-		if (delimiters.find(s[index]) == std::string::npos)
-		{
-			tempString += s[index];
-		}
-		else
-		{
-			if (tempString.size() > 0)
-			{
-				result.push_back(tempString);
-			}
-			tempString = "";
-		}
-		index++;
-	}
-
-	return result;
-}
-
 std::string removeHtmlTags(const std::string& html) {
 	std::regex htmlTagPattern("<.*?>");
 	return std::regex_replace(html, htmlTagPattern, "");
+}
+
+std::map<std::string, int> countWords(const std::vector<std::string>& words)
+{
+	std::map<std::string, int> wordCount;
+
+	for (auto& s : words)
+	{
+		if ((s.size() >= 3) && (s.size() < 255))
+		{
+
+			auto word = wordToLowerCase(s);
+
+			if (wordCount.count(word) == 0)
+			{
+				wordCount[word] = 1;
+			}
+			else
+			{
+				wordCount[word]++;
+			}
+		}
+	}
+
+	return wordCount;
+
 }
 
 
@@ -150,7 +148,7 @@ std::unordered_set<Link> filterLinks(const std::vector<std::string>& rawLinks, P
 }
 
 
-std::string GetHtmlContent(const Link& link)
+std::string getHtmlContent(const Link& link)
 {
 
 	std::string result;

@@ -8,11 +8,14 @@ add_executable(DiplomProject001
 	main.cpp
 	database_worker.h
 	database_worker.cpp
+	parser_database_worker.h
+	parser_database_worker.cpp
 	http_utils.h
 	http_utils.cpp
 	common.h
 	common.cpp
 	ini_parser.h
+	ini_parser.cpp
 	link.h
 	)
 
@@ -42,7 +45,19 @@ find_package(OpenSSL REQUIRED)
 
 target_link_libraries(DiplomProject001 OpenSSL::SSL)
 
-add_executable(SearchEngine search.cpp ini_parser.h)
+add_executable(SearchEngine 
+	search.cpp
+	database_worker.h
+	database_worker.cpp
+	server_database_worker.h
+	server_database_worker.cpp
+	common.h
+	common.cpp
+	http_connection.h
+	http_connection.cpp
+	ini_parser.h
+	ini_parser.cpp
+	)
 
 target_compile_features(SearchEngine PRIVATE cxx_std_17) 
 

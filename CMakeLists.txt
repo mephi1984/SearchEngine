@@ -4,7 +4,17 @@ set(PostgreSQL_ADDITIONAL_VERSIONS "15")
 
 project(DiplomProject001)
 
-add_executable(DiplomProject001 main.cpp)
+add_executable(DiplomProject001 
+	main.cpp
+	database_worker.h
+	database_worker.cpp
+	http_utils.h
+	http_utils.cpp
+	common.h
+	common.cpp
+	ini_parser.h
+	link.h
+	)
 
 add_subdirectory("C:/Work/Projects/libpqxx-7.7.4" libpqxx-build) 
 
@@ -32,7 +42,7 @@ find_package(OpenSSL REQUIRED)
 
 target_link_libraries(DiplomProject001 OpenSSL::SSL)
 
-add_executable(SearchEngine search.cpp)
+add_executable(SearchEngine search.cpp ini_parser.h)
 
 target_compile_features(SearchEngine PRIVATE cxx_std_17) 
 

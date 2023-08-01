@@ -17,12 +17,22 @@ IniParser::IniParser(const std::string& fileName)
 
 		std::string line;
 		while (std::getline(ini_file, line)) {
-			size_t pos = line.find('=');
+
+			if ((line.size() > 0) && (line[0] == ';'))
+			{
+				continue;
+			}
+
+			size_t commentPos = line.find(" ;");
+
+			std::string lineBeforeComment = line.substr(0, commentPos);
+
+			size_t pos = lineBeforeComment.find('=');
 			if (pos == std::string::npos)
 				continue;
 
-			std::string key = line.substr(0, pos);
-			std::string value = line.substr(pos + 1);
+			std::string key = lineBeforeComment.substr(0, pos);
+			std::string value = lineBeforeComment.substr(pos + 1);
 			my_map[key] = value;
 		}
 

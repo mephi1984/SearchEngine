@@ -94,28 +94,31 @@ Link splitLink(const std::string& link)
 	{
 		std::string withoutProtocol = link.substr(7);
 		size_t slashPos = withoutProtocol.find('/');
+		result.hostName = withoutProtocol.substr(0, slashPos);
 		if (slashPos == std::string::npos)
 		{
-			throw std::runtime_error("invalid link");
+			result.query = "/";
 		}
-		std::string host = withoutProtocol.substr(0, slashPos);
-		std::string query = withoutProtocol.substr(slashPos);
-		result.hostName = host;
-		result.query = query;
+		else
+		{
+			result.query = withoutProtocol.substr(slashPos);
+		}
+		
 		result.protocol = ProtocolType::HTTP;
 	}
 	else if (link.substr(0, 8) == "https://")
 	{
 		std::string withoutProtocol = link.substr(8);
 		size_t slashPos = withoutProtocol.find('/');
+		result.hostName = withoutProtocol.substr(0, slashPos);
 		if (slashPos == std::string::npos)
 		{
-			throw std::runtime_error("invalid link");
+			result.query = "/";
 		}
-		std::string host = withoutProtocol.substr(0, slashPos);
-		std::string query = withoutProtocol.substr(slashPos);
-		result.hostName = host;
-		result.query = query;
+		else
+		{
+			result.query = withoutProtocol.substr(slashPos);
+		}
 		result.protocol = ProtocolType::HTTPS;
 	}
 	else
@@ -158,56 +161,100 @@ std::string getHtmlContent(const Link& link)
 		std::string host = link.hostName;
 		std::string query = link.query;
 
-
 		net::io_context ioc;
-		ssl::context ctx(ssl::context::tlsv13_client);
-		ctx.set_default_verify_paths();
 
-		beast::ssl_stream<beast::tcp_stream> stream(ioc, ctx);
-		stream.set_verify_mode(ssl::verify_none);
-
-		stream.set_verify_callback([](bool preverified, ssl::verify_context& ctx) {
-			return true; // Accept any certificate
-			});
-
-
-		if (!SSL_set_tlsext_host_name(stream.native_handle(), host.c_str())) {
-			beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
-			throw beast::system_error{ec};
-		}
-
-		ip::tcp::resolver resolver(ioc);
-		get_lowest_layer(stream).connect(resolver.resolve({ host, "https" }));
-		get_lowest_layer(stream).expires_after(std::chrono::seconds(30));
-
-
-		http::request<http::empty_body> req{http::verb::get, query, 11};
-		req.set(http::field::host, host);
-		req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
-
-		stream.handshake(ssl::stream_base::client);
-		http::write(stream, req);
-
-		beast::flat_buffer buffer;
-		http::response<http::dynamic_body> res;
-		http::read(stream, buffer, res);
-
-		if (isText(res.body().data()))
+		if (link.protocol == ProtocolType::HTTPS)
 		{
-			result = buffers_to_string(res.body().data());
+
+			ssl::context ctx(ssl::context::tlsv13_client);
+			ctx.set_default_verify_paths();
+
+			beast::ssl_stream<beast::tcp_stream> stream(ioc, ctx);
+			stream.set_verify_mode(ssl::verify_none);
+
+			stream.set_verify_callback([](bool preverified, ssl::verify_context& ctx) {
+				return true; // Accept any certificate
+				});
+
+
+			if (!SSL_set_tlsext_host_name(stream.native_handle(), host.c_str())) {
+				beast::error_code ec{static_cast<int>(::ERR_get_error()), net::error::get_ssl_category()};
+				throw beast::system_error{ec};
+			}
+
+			ip::tcp::resolver resolver(ioc);
+			get_lowest_layer(stream).connect(resolver.resolve({ host, "https" }));
+			get_lowest_layer(stream).expires_after(std::chrono::seconds(30));
+
+
+			http::request<http::empty_body> req{http::verb::get, query, 11};
+			req.set(http::field::host, host);
+			req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+
+			stream.handshake(ssl::stream_base::client);
+			http::write(stream, req);
+
+			beast::flat_buffer buffer;
+			http::response<http::dynamic_body> res;
+			http::read(stream, buffer, res);
+
+			if (isText(res.body().data()))
+			{
+				result = buffers_to_string(res.body().data());
+			}
+			else
+			{
+				std::cout << "This is not a text link, bailing out..." << std::endl;
+			}
+
+			beast::error_code ec;
+			stream.shutdown(ec);
+			if (ec == net::error::eof) {
+				ec = {};
+			}
+
+			if (ec) {
+				throw beast::system_error{ec};
+			}
 		}
 		else
 		{
-			std::cout << "This is not a text link, bailing out..." << std::endl;
-		}
+			tcp::resolver resolver(ioc);
+			beast::tcp_stream stream(ioc);
 
-		beast::error_code ec;
-		stream.shutdown(ec);
-		if (ec == net::error::eof) {
-			ec = {};
-		}
-		if (ec) {
-			throw beast::system_error{ec};
+			auto const results = resolver.resolve(host, "http");
+
+			stream.connect(results);
+
+			http::request<http::string_body> req{http::verb::get, query, 11};
+			req.set(http::field::host, host);
+			req.set(http::field::user_agent, BOOST_BEAST_VERSION_STRING);
+
+
+			http::write(stream, req);
+
+			beast::flat_buffer buffer;
+
+			http::response<http::dynamic_body> res;
+
+
+			http::read(stream, buffer, res);
+
+			if (isText(res.body().data()))
+			{
+				result = buffers_to_string(res.body().data());
+			}
+			else
+			{
+				std::cout << "This is not a text link, bailing out..." << std::endl;
+			}
+
+			beast::error_code ec;
+			stream.socket().shutdown(tcp::socket::shutdown_both, ec);
+
+			if (ec && ec != beast::errc::not_connected)
+				throw beast::system_error{ec};
+
 		}
 	}
 	catch (const std::exception& e)
@@ -217,3 +264,4 @@ std::string getHtmlContent(const Link& link)
 
 	return result;
 }
+

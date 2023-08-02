@@ -1,33 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 
-set(PostgreSQL_ADDITIONAL_VERSIONS "15")
+project(CppDiplomProject)
 
-project(DiplomProject001)
 
-add_executable(DiplomProject001 
-	main.cpp
-	database_worker.h
-	database_worker.cpp
-	parser_database_worker.h
-	parser_database_worker.cpp
-	http_utils.h
-	http_utils.cpp
-	common.h
-	common.cpp
-	ini_parser.h
-	ini_parser.cpp
-	link.h
-	)
 
-add_subdirectory("C:/Work/Projects/libpqxx-7.7.4" libpqxx-build) 
+# Define by your own needs:
+set(OPENSSL_ROOT_DIR "C:\\Program Files\\OpenSSL-Win64")
 
-target_compile_features(DiplomProject001 PRIVATE cxx_std_17) 
+set(BOOST_ROOT "C:\\Boost")
 
-target_link_libraries(DiplomProject001 pqxx)              
-
-set(Boost_ADDITIONAL_VERSIONS 1.80.0 1.80)
-
-set(BOOST_ROOT "C:\\Work\\Projects\\boost_1_80_0")
+set(libpqxx_DIR "C:\\Work\\Projects\\libpqxx-7.7.5")
 
 find_package(Boost 1.80.0 REQUIRED COMPONENTS system thread locale)
 
@@ -35,36 +17,65 @@ if(NOT Boost_FOUND)
     message(FATAL_ERROR "Could not find Boost")
 endif()
 
-target_include_directories(DiplomProject001 PRIVATE ${Boost_INCLUDE_DIRS})
 
-target_link_libraries(DiplomProject001 ${Boost_LIBRARIES})
 
-set(OPENSSL_ROOT_DIR "C:\\Program Files\\OpenSSL-Win64")
+
+add_executable(SpiderApp
+	spider/main.cpp
+	spider/parser_database_worker.h
+	spider/parser_database_worker.cpp
+	spider/http_utils.h
+	spider/http_utils.cpp
+	spider/link.h
+	common/common.h
+	common/common.cpp
+	common/database_worker.h
+	common/database_worker.cpp
+	common/ini_parser.h
+	common/ini_parser.cpp
+	)
+
+
+set(PostgreSQL_ADDITIONAL_VERSIONS "15")
+
+add_subdirectory(${libpqxx_DIR} libpqxx-build) 
+
+target_compile_features(SpiderApp PRIVATE cxx_std_17) 
+
+target_link_libraries(SpiderApp pqxx)
+
+
+
+
+
+target_include_directories(SpiderApp PRIVATE ${Boost_INCLUDE_DIRS})
+
+target_link_libraries(SpiderApp ${Boost_LIBRARIES})
 
 find_package(OpenSSL REQUIRED)
 
-target_link_libraries(DiplomProject001 OpenSSL::SSL)
+target_link_libraries(SpiderApp OpenSSL::SSL)
 
-add_executable(SearchEngine 
-	search.cpp
-	database_worker.h
-	database_worker.cpp
-	server_database_worker.h
-	server_database_worker.cpp
-	common.h
-	common.cpp
-	http_connection.h
-	http_connection.cpp
-	ini_parser.h
-	ini_parser.cpp
+add_executable(HttpServerApp 
+	http_server/search.cpp
+	http_server/server_database_worker.h
+	http_server/server_database_worker.cpp
+	http_server/http_connection.h
+	http_server/http_connection.cpp
+	common/common.h
+	common/common.cpp
+	common/database_worker.h
+	common/database_worker.cpp
+	common/ini_parser.h
+	common/ini_parser.cpp
 	)
 
-target_compile_features(SearchEngine PRIVATE cxx_std_17) 
+target_compile_features(HttpServerApp PRIVATE cxx_std_17) 
 
-target_link_libraries(SearchEngine pqxx)  
+target_link_libraries(HttpServerApp pqxx)  
 
-target_include_directories(SearchEngine PRIVATE ${Boost_INCLUDE_DIRS})
+target_include_directories(HttpServerApp PRIVATE ${Boost_INCLUDE_DIRS})
 
-target_link_libraries(SearchEngine ${Boost_LIBRARIES})
+target_link_libraries(HttpServerApp ${Boost_LIBRARIES})
 
-target_link_libraries(SearchEngine OpenSSL::SSL)
+target_link_libraries(HttpServerApp OpenSSL::SSL)

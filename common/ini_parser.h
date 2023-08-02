@@ -24,7 +24,7 @@ public:
 	int getLevel() const;
 
 	std::string getDbHost() const;
-	 
+
 	std::string getDbPort() const;
 
 	std::string getDbName() const;

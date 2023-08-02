@@ -1,26 +1,68 @@
 #include "server_database_worker.h"
-#include "http_utils.h"
-#include "common.h"
+#include "../common/common_functions.h"
 
 
 ServerDatabaseWorker::ServerDatabaseWorker(const IniParser& iniParser)
-		: DatabaseWorker(iniParser)
-	{
+	: DatabaseWorker(iniParser)
+{
 
-	c.prepare("search_pages_1word", "select protocol, host, query, amount from documents join(select * from words_documents where word_id = $1) as subquery on subquery.document_id = documents.id order by amount desc limit 10");
-	c.prepare("search_pages_2words", "select protocol, host, query, sum(amount) from documents join(select * from words_documents where word_id = $1 or word_id = $2) as subquery on subquery.document_id = documents.id group by(protocol, host, query) order by sum desc limit 10");
-	c.prepare("search_pages_3words", "select protocol, host, query, sum(amount) from documents join(select * from words_documents where word_id = $1 or word_id = $2 or word_id = $3) as subquery on subquery.document_id = documents.id group by(protocol, host, query) order by sum desc limit 10");
-	c.prepare("search_pages_4words", "select protocol, host, query, sum(amount) from documents join(select * from words_documents where word_id = $1 or word_id = $2 or word_id = $3  or word_id = $4) as subquery on subquery.document_id = documents.id group by(protocol, host, query) order by sum desc limit 10");
+	c.prepare("search_pages_1word",
+		"select d.protocol, d.host, d.query, sum(wd1.amount) as totalsum "
+		"FROM documents d "
+		"JOIN words_documents wd1 ON d.id = wd1.document_id "
+		"JOIN words w1 ON wd1.word_id = w1.id AND w1.id = $1 "
+		"group by(d.protocol, d.host, d.query) "
+		"order by totalsum desc limit 10"
+	);
 
-	}
+	c.prepare("search_pages_2words", "select d.protocol, d.host, d.query, sum(wd1.amount) + sum(wd2.amount) as totalsum "
+		"FROM documents d "
+		"JOIN words_documents wd1 ON d.id = wd1.document_id "
+		"JOIN words w1 ON wd1.word_id = w1.id AND w1.id = $1 "
+
+		"JOIN words_documents wd2 ON d.id = wd2.document_id "
+		"JOIN words w2 ON wd2.word_id = w2.id AND w2.id = $2 "
+		"group by(d.protocol, d.host, d.query) "
+		"order by totalsum desc limit 10");
+
+	c.prepare("search_pages_3words", "select d.protocol, d.host, d.query, sum(wd1.amount) + sum(wd2.amount) + sum(wd3.amount) as totalsum "
+		"FROM documents d "
+		"JOIN words_documents wd1 ON d.id = wd1.document_id "
+		"JOIN words w1 ON wd1.word_id = w1.id AND w1.id = $1 "
+
+		"JOIN words_documents wd2 ON d.id = wd2.document_id "
+		"JOIN words w2 ON wd2.word_id = w2.id AND w2.id = $2 "
+
+		"JOIN words_documents wd3 ON d.id = wd3.document_id "
+		"JOIN words w3 ON wd3.word_id = w3.id AND w3.id = $3 "
+
+		"group by(d.protocol, d.host, d.query) "
+		"order by totalsum desc limit 10");
+
+	c.prepare("search_pages_4words", "select d.protocol, d.host, d.query, sum(wd1.amount) + sum(wd2.amount) + sum(wd3.amount) + sum(wd4.amount) as totalsum "
+		"FROM documents d "
+		"JOIN words_documents wd1 ON d.id = wd1.document_id "
+		"JOIN words w1 ON wd1.word_id = w1.id AND w1.id = $1 "
+
+		"JOIN words_documents wd2 ON d.id = wd2.document_id "
+		"JOIN words w2 ON wd2.word_id = w2.id AND w2.id = $2 "
+
+		"JOIN words_documents wd3 ON d.id = wd3.document_id "
+		"JOIN words w3 ON wd3.word_id = w3.id AND w3.id = $3 "
+
+		"JOIN words_documents wd4 ON d.id = wd4.document_id "
+		"JOIN words w4 ON wd4.word_id = w4.id AND w4.id = $4 "
+
+		"group by(d.protocol, d.host, d.query) "
+		"order by totalsum desc limit 10");
+
+}
 
 std::vector<std::string> ServerDatabaseWorker::searchPages(const std::string& query)
 {
 	std::vector<std::string> result;
 
 	auto queryLowerCase = wordToLowerCase(query);
-
-	std::cout << "lower case: " << queryLowerCase;
 
 	std::vector<std::string> words = explode(queryLowerCase);
 

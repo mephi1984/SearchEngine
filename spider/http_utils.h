@@ -6,8 +6,6 @@
 #include "link.h"
 
 
-
-
 std::vector<std::string> explode(const std::string& s);
 
 std::string removeHtmlTags(const std::string& html);
@@ -21,3 +19,4 @@ Link splitLink(const std::string& link);
 std::unordered_set<Link> filterLinks(const std::vector<std::string>& rawLinks, ProtocolType protocol, const std::string& hostName);
 
 std::string getHtmlContent(const Link& link);
+

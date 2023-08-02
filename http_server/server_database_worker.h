@@ -1,5 +1,5 @@
 #pragma once
-#include "database_worker.h"
+#include "../common/database_worker.h"
 
 class ServerDatabaseWorker : public DatabaseWorker
 {
@@ -8,12 +8,4 @@ public:
 
 	std::vector<std::string> searchPages(const std::string& query);
 };
-
-
-
-
-
-
-
-
 

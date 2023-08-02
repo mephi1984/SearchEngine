@@ -10,13 +10,7 @@ protected:
 
 public:
 	DatabaseWorker(const IniParser& iniParser);
+
+	void createTables();
 };
-
-
-
-
-
-
-
-
 

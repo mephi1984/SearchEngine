@@ -5,10 +5,10 @@
 #include <queue>
 #include <condition_variable>
 
-#include "ini_parser.h"
+#include "../common/ini_parser.h"
 #include "parser_database_worker.h"
 #include "http_utils.h"
-#include "common.h"
+#include "../common/common_functions.h"
 #include <functional>
 
 
@@ -43,7 +43,7 @@ void parseLink(ParserDatabaseWorker& databaseWorker, Link link, int depth, int i
 
 		if (html.size() == 0)
 		{
-			std::cout << "Failed to parse: " << link.hostName << " " << link.query<<std::endl;
+			std::cout << "Failed to parse: " << link.hostName << " " << link.query << std::endl;
 
 			return;
 		}
@@ -95,7 +95,7 @@ int main()
 {
 	try {
 
-		IniParser iniParser("C:\\Work\\Projects\\DiplomProject001\\settings.ini");
+		IniParser iniParser("settings.ini");
 
 		ParserDatabaseWorker databaseWorker(iniParser);
 

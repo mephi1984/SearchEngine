@@ -16,41 +16,31 @@ class HttpConnection : public std::enable_shared_from_this<HttpConnection>
 {
 protected:
 
-    tcp::socket socket_;
+	tcp::socket socket_;
 
-    ServerDatabaseWorker& databaseWorker_;
+	ServerDatabaseWorker& databaseWorker_;
 
-    beast::flat_buffer buffer_{8192};
+	beast::flat_buffer buffer_{8192};
 
+	http::request<http::dynamic_body> request_;
 
-    http::request<http::dynamic_body> request_;
-
-    http::response<http::dynamic_body> response_;
-
-
-    net::steady_timer deadline_{
-        socket_.get_executor(), std::chrono::seconds(60)};
+	http::response<http::dynamic_body> response_;
 
 
-    void
-        readRequest();
-    void
-        processRequest();
-   
+	net::steady_timer deadline_{
+		socket_.get_executor(), std::chrono::seconds(60)};
 
-    void createResponseGet();
+	void readRequest();
+	void processRequest();
 
-    void createResponsePost();
-    void
-        writeResponse();
-    void
-        checkDeadline();
+	void createResponseGet();
+
+	void createResponsePost();
+	void writeResponse();
+	void checkDeadline();
 
 public:
-    HttpConnection(tcp::socket socket, ServerDatabaseWorker& databaseWorker);
-
-
-    void
-        start();
+	HttpConnection(tcp::socket socket, ServerDatabaseWorker& databaseWorker);
+	void start();
 };
 

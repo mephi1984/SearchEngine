@@ -12,14 +12,14 @@
 #include <boost/asio/ssl.hpp>
 #include <openssl/ssl.h>
 
-#include "common.h"
+#include "../common/common_functions.h"
 
 namespace beast = boost::beast;
 namespace http = beast::http;
 namespace net = boost::asio;
 namespace ip = boost::asio::ip;
 namespace ssl = boost::asio::ssl;
-//namespace json = boost::json;
+
 using tcp = boost::asio::ip::tcp;
 
 bool isText(const boost::beast::multi_buffer::const_buffers_type& b)
@@ -103,7 +103,7 @@ Link splitLink(const std::string& link)
 		{
 			result.query = withoutProtocol.substr(slashPos);
 		}
-		
+
 		result.protocol = ProtocolType::HTTP;
 	}
 	else if (link.substr(0, 8) == "https://")
